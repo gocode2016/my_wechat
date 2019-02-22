@@ -9,6 +9,7 @@
 @time: 2018/12/5 20:32
 """
 
+import time
 import urllib, json, random
 from flask import Flask, request, abort
 from werkzeug.contrib.fixers import ProxyFix
@@ -80,12 +81,25 @@ def weixin_handle():
                 else:
                     pass  # redis操作失败
 
-                reply = create_reply('你好，欢迎关注IT魔君！一入IT深似海，从此月薪百万+，IT魔君与你分享各种黑科技，带你装逼带你飞！', msg);
+                reply = create_reply('Hello，小伙伴儿，欢迎关注IT魔君！一入IT深似海，从此再也不缺爱，IT魔君与你分享各种骚操作，带你装逼带你飞！', msg);
             elif msg.event == 'unsubscribe':  # 取消关注事件
                 r.delete(redis_key)
                 reply = create_reply('期待与你再次相遇！', msg)
+            else:
+                # 比如点击菜单事件等
+                reply = create_reply('', msg)  # 回复空消息
         elif msg.type == 'text' or msg.type == 'voice':  # 文本消息或语音消息
-        
+            cur_msg_time = time.time()
+            last_msg_time = r.hget(redis_key, 'last_msg_time')  # hget方法返回值为str值或者None 
+            if not last_msg_time:
+                last_msg_time = 0
+            ret = r.hset(redis_key, "last_msg_time", cur_msg_time)
+
+            # 如果两次连续消息的时间间隔超过1小时，那么就直接设置为普通聊天模式
+            if cur_msg_time - float(last_msg_time) > 3600:
+                r.hmset(redis_key, {'state': 1})
+                state = '1'
+            
             if msg.type == 'voice':
                 content = msg.recognition
                 if content is None:
@@ -107,21 +121,22 @@ def weixin_handle():
                         ret = r.hset(redis_key, "state", 2)
                     else:
                         reply = '成功进入远控模式，请输入要绑定的目标电脑ID'
+                        ret = r.hset(redis_key, "state", 21)
+                # elif '小魔仙你好' in content:
+                elif '@小魔仙' == content:
+                        reply = '小魔仙驾到，我们开始快乐地尬聊吧~'
                         ret = r.hset(redis_key, "state", 3)
                 else:
-                    try:
-                        reply = get_robot_reply(content)
-                    except Exception as e:
-                        reply = str(e)
-
+                        # reply = ''  # 回复空消息
+                        reply = '君哥正在苦逼调bug，稍后给你回复！'
             elif state == '2':
                 # 远控模式
                 if '芝麻关门' in content:
-                    reply = '已退出远控模式！'
+                    reply = '已退出远控模式，进入与君哥尬聊的快乐模式！'
                     ret = r.hset(redis_key, "state", 1)
                 elif '绑定电脑' in content:
                     reply = '目标电脑ID是啥？'
-                    ret = r.hset(redis_key, "state", 3)
+                    ret = r.hset(redis_key, "state", 21)
                 else:
                     pc_id = r.hget(redis_key, 'pc_id')
                     cmd = content
@@ -130,7 +145,7 @@ def weixin_handle():
                         reply = '控制成功！'
                     else:
                         reply = '控制失败！'
-            elif state == '3':
+            elif state == '21':
                 # 等待用户输入目标电脑ID模式
                 pc_id = content
                 ret = r.hmset(redis_key, {'state': 2, 'pc_id': pc_id})
@@ -138,6 +153,17 @@ def weixin_handle():
                     reply = '绑定成功！'
                 else:
                     reply = '绑定失败！'
+            elif state == '3':
+                # 自动聊天模式
+                # if '小魔仙再见' in content:
+                if '@君哥' == content:
+                    reply = '小魔仙睡觉去了，现在君哥陪你尬聊！'
+                    ret = r.hset(redis_key, "state", 1)
+                else:
+                    try:
+                        reply = get_robot_reply(content)
+                    except Exception as e:
+                        reply = str(e)
             else:
                 reply = ''  # 回复空消息
 
